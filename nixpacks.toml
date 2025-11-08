@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ['python310']
+
+[phases.install]
+cmds = ['pip install -r requirements_flask.txt']
+
+[start]
+cmd = 'python flask_api_server.py'
