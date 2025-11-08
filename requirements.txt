@@ -6,7 +6,3 @@ requests==2.31.0
 torch
 transformers
 accelerate
-
-# Gradio는 Gradio 인터페이스를 사용하지 않더라도
-# app.py에 import gradio as gr 구문이 있으므로 필요합니다.
-gradio
