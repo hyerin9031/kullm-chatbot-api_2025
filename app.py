@@ -7,6 +7,16 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 
+# KULLM 관련 라이브러리
+try:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    TRANSFORMERS_AVAILABLE = True
+    print("✅ torch와 transformers 사용 가능")
+except ImportError as e:
+    TRANSFORMERS_AVAILABLE = False
+    print(f"⚠️ transformers 또는 torch 없음: {e}")
+
 # ============================
 # 1. 온통청년 API 연동
 # ============================
@@ -63,7 +73,13 @@ class YouthPolicyAPI:
                 inst_name = policy.get('rgtrInstCdNm', '')
                 region_mapping = {
                     '서울': ['서울'], '부산': ['부산'], '대구': ['대구'], 
-                    '창원': ['창원'], '경남': ['경상남도', '경남']
+                    '창원': ['창원'], '경남': ['경상남도', '경남'],
+                    '인천': ['인천'], '광주': ['광주'], '대전': ['대전'],
+                    '울산': ['울산'], '세종': ['세종'], '경기': ['경기'],
+                    '강원': ['강원'], '충북': ['충청북도', '충북'],
+                    '충남': ['충청남도', '충남'], '전북': ['전라북도', '전북'],
+                    '전남': ['전라남도', '전남'], '경북': ['경상북도', '경북'],
+                    '제주': ['제주']
                 }
                 match_regions = region_mapping.get(region, [region])
                 if not any(r in inst_name for r in match_regions):
@@ -211,91 +227,133 @@ class AlioplusPolicyAPI:
 """
 
 # ============================
-# 4. KULLM Inference API
+# 4. KULLM 로컬 모델
 # ============================
 
-class KULLMInferenceAPI:
-    """✅ Hugging Face Inference API로 KULLM 호출"""
-    def __init__(self, model_name: str = "nlpai-lab/KULLM-Polyglot-5.8B-v2", hf_token: str = None):
-        self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
-        self.headers = {}
-        if hf_token:
-            self.headers["Authorization"] = f"Bearer {hf_token}"
-        print(f"✅ KULLM Inference API 초기화: {model_name}")
+class KULLMChatbot:
+    """✅ Railway Pro에서 로컬 KULLM 모델 직접 로드"""
+    def __init__(self, model_name: str = "nlpai-lab/KULLM-Polyglot-5.8B-v2"):
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError("transformers와 torch가 필요합니다!")
+        
+        print("\n" + "="*60)
+        print("🤖 KULLM 5.8B-v2 모델 로딩 시작...")
+        print("="*60)
+        print("⏳ 토크나이저 로딩 중...")
 
-    def generate_response(self, prompt: str, max_new_tokens: int = 120, max_retries: int = 2) -> str:
-        """Inference API로 응답 생성 (재시도 로직 포함)"""
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": max_new_tokens,
-                "temperature": 0.6,
-                "top_p": 0.9,
-                "do_sample": True,
-                "return_full_text": False,
-                "repetition_penalty": 1.12
-            }
-        }
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        print("✅ 토크나이저 로딩 완료!")
+        
+        print("⏳ 모델 로딩 중... (첫 실행: 3-10분, 이후: 1-2분)")
+        
+        if torch.cuda.is_available():
+            print("   🚀 GPU 감지됨! GPU 모드로 로딩...")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                low_cpu_mem_usage=True
+            )
+            self.model = self.model.to('cuda')
+            print("   ✅ GPU 모드 활성화")
+        else:
+            print("   💻 CPU 모드로 로딩...")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True
+            )
+            self.model = self.model.to('cpu')
+            print("   ✅ CPU 모드 활성화")
 
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(
-                    self.api_url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=60
-                )
-
-                if response.status_code == 503:
-                    if attempt < max_retries - 1:
-                        print(f"⏳ 모델 로딩 중... 재시도 {attempt+1}/{max_retries}")
-                        import time
-                        time.sleep(20)
-                        continue
-                    return "⏳ 모델이 로딩 중입니다. 잠시 후 다시 시도해주세요."
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                if isinstance(result, list) and len(result) > 0:
-                    text = result[0].get('generated_text', '')
-                    return self.clean_response(text)
-                
-                return "응답을 생성하지 못했습니다."
-
-            except requests.exceptions.Timeout:
-                if attempt < max_retries - 1:
-                    print(f"⏱️ 타임아웃... 재시도 {attempt+1}/{max_retries}")
-                    continue
-                return "⏱️ 응답 시간이 초과되었습니다."
-            except Exception as e:
-                print(f"KULLM API 오류: {e}")
-                return "죄송합니다. 응답 생성 중 문제가 발생했습니다."
-
-        return "응답 생성에 실패했습니다."
+        print("="*60)
+        print("✅ KULLM 모델 완전히 로딩 완료!")
+        print("="*60 + "\n")
 
     def clean_response(self, text: str) -> str:
         """응답 정리"""
         patterns = [
             r'\b(User|사용자)\s*:\s*.*?\n',
             r'\b(Assistant|Chatbot|챗봇)\s*:\s*',
+            r'\b(Q|질문)\s*:\s*.*?\n',
+            r'\b(A|답변)\s*:\s*'
         ]
         for p in patterns:
             text = re.sub(p, '', text, flags=re.IGNORECASE | re.DOTALL)
         text = re.sub(r'\n{3,}', '\n\n', text).strip()
         return text if text else "더 구체적으로 질문해주시면 도움을 드리겠습니다."
 
+    def generate_response(self, prompt: str, max_new_tokens: int = 120) -> str:
+        """✅ 짧고 간결한 응답 생성"""
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            return_token_type_ids=False
+        )
+        
+        if torch.cuda.is_available():
+            inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.inference_mode():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=0.6,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+                repetition_penalty=1.12,
+                no_repeat_ngram_size=3
+            )
+
+        text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        # 프롬프트 제거
+        if text.startswith(prompt):
+            text = text[len(prompt):].lstrip()
+
+        # 대화 종료 신호 제거
+        for stop in ["\n\nUser:", "\n\n사용자:", "\n\nQ:", "\n\n질문:"]:
+            if stop in text:
+                text = text.split(stop, 1)[0].rstrip()
+                break
+
+        text = self.clean_response(text)
+        return text
+
 # ============================
 # 5. 통합 챗봇
 # ============================
 
 class UnifiedPolicyChatbot:
-    def __init__(self, youth_api_key: str, bizinfo_api_key: str, alioplus_api_key: str, hf_token: str = None):
+    def __init__(self, youth_api_key: str, bizinfo_api_key: str, alioplus_api_key: str, use_kullm: bool = True):
         self.youth_api = YouthPolicyAPI(youth_api_key)
         self.bizinfo_api = BizinfoPolicyAPI(bizinfo_api_key)
         self.alioplus_api = AlioplusPolicyAPI(alioplus_api_key)
-        self.kullm = KULLMInferenceAPI(hf_token=hf_token)
-        print("✅ 챗봇 초기화 완료!")
+        self.kullm = None
+        self.use_kullm = use_kullm and TRANSFORMERS_AVAILABLE
+        self.kullm_loaded = False
+        print("✅ 정책 API 초기화 완료!")
+
+    def load_kullm(self):
+        """KULLM 모델 로드 (백그라운드에서 실행 가능)"""
+        if not self.use_kullm:
+            print("ℹ️ KULLM 사용 안 함 (검색 모드)")
+            return False
+        
+        try:
+            self.kullm = KULLMChatbot()
+            self.kullm_loaded = True
+            print("\n🎉 KULLM 준비 완료! 자연스러운 대화가 가능합니다!\n")
+            return True
+        except Exception as e:
+            print(f"\n❌ KULLM 로딩 실패: {e}")
+            print("⚠️ 검색 모드로 전환합니다.\n")
+            self.kullm = None
+            self.kullm_loaded = False
+            return False
 
     def extract_user_info(self, message: str) -> Dict:
         """사용자 정보 추출"""
@@ -325,7 +383,7 @@ class UnifiedPolicyChatbot:
                     break
 
         # 지역 추출
-        regions = ['서울', '부산', '대구', '창원', '경남', '경기', '제주']
+        regions = ['서울', '부산', '대구', '창원', '경남', '경기', '제주', '인천', '광주', '대전']
         for region in regions:
             if region in message:
                 info['region'] = region
@@ -424,19 +482,22 @@ class UnifiedPolicyChatbot:
                 return "조건에 맞는 정책을 찾지 못했습니다."
 
         # KULLM 일반 대화
-        prompt = (
-            "너는 한국어로 자연스럽게 답하는 정책 안내 AI다. "
-            "자문자답이나 역할 표시 없이, 완전한 문장으로 답해라.\n\n"
-            f"질문: {message}\n\n답변:"
-        )
-        return self.kullm.generate_response(prompt, max_new_tokens=120)
+        if self.kullm_loaded and self.kullm is not None:
+            prompt = (
+                "너는 한국어로 자연스럽게 답하는 정책 안내 AI다. "
+                "자문자답이나 역할 표시 없이, 완전한 문장으로 답해ra.\n\n"
+                f"질문: {message}\n\n답변:"
+            )
+            return self.kullm.generate_response(prompt, max_new_tokens=120)
+
+        return "구체적으로 말씀해주시면 정책을 찾아드리겠습니다!"
 
 # ============================
 # 6. Flask API
 # ============================
 
 app = Flask(__name__)
-CORS(app)  # ✅ CORS 활성화 (외부 웹사이트에서 접근 가능)
+CORS(app)  # ✅ CORS 활성화
 
 # 전역 챗봇 인스턴스
 global_chatbot = None
@@ -444,22 +505,27 @@ global_chatbot = None
 @app.route("/")
 def home():
     return jsonify({
-        "service": "통합 정책 추천 챗봇 API",
+        "service": "통합 정책 추천 챗봇 API (Railway Pro + Local KULLM)",
         "version": "2.0",
         "endpoints": {
             "chat": "/api/chat (POST)",
             "health": "/health (GET)"
-        }
+        },
+        "kullm_status": "loaded" if (global_chatbot and global_chatbot.kullm_loaded) else "not_loaded"
     })
 
 @app.route("/health")
 def health():
     """헬스 체크"""
-    return jsonify({"status": "ok", "chatbot_ready": global_chatbot is not None})
+    return jsonify({
+        "status": "ok",
+        "chatbot_ready": global_chatbot is not None,
+        "kullm_loaded": global_chatbot.kullm_loaded if global_chatbot else False
+    })
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
-    """✅ 메인 챗봇 API 엔드포인트"""
+    """✅ 메인 챗봇 API 엔드포인트 (/api/chat 유지)"""
     global global_chatbot
     
     if global_chatbot is None:
@@ -499,14 +565,14 @@ def api_chat():
 # ============================
 
 if __name__ == "__main__":
-    # 환경 변수 또는 기본값
+    # 환경 변수
     YOUTH_API_KEY = os.environ.get("YOUTH_API_KEY", "fa19e38e-58a0-4847-b18a-a8e272bd8f40")
     BIZINFO_API_KEY = os.environ.get("BIZINFO_API_KEY", "gQ0k25")
     ALIOPLUS_API_KEY = os.environ.get("ALIOPLUS_API_KEY", "XUUrvIcCpSVWkp0wLH8gPebTAOIJLfwmTgdWoEcFUSQ=")
-    HF_TOKEN = os.environ.get("HF_TOKEN")  # 선택사항
+    USE_KULLM = os.environ.get("USE_KULLM", "True").lower() == "true"
     
     print("\n" + "="*60)
-    print("🚀 통합 정책 추천 챗봇 API 서버 시작")
+    print("🚀 통합 정책 추천 챗봇 API 서버 시작 (Railway Pro)")
     print("="*60)
     
     # 챗봇 초기화
@@ -514,8 +580,13 @@ if __name__ == "__main__":
         YOUTH_API_KEY,
         BIZINFO_API_KEY,
         ALIOPLUS_API_KEY,
-        hf_token=HF_TOKEN
+        use_kullm=USE_KULLM
     )
+    
+    # KULLM 모델 로드 (USE_KULLM=True일 때만)
+    if USE_KULLM:
+        print("\n🔄 KULLM 모델 로딩 중...")
+        global_chatbot.load_kullm()
     
     # Flask 서버 실행
     port = int(os.environ.get("PORT", 8000))
