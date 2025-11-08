@@ -1,6 +1,5 @@
 import requests
 import json
-import gradio as gr
 from typing import List, Dict
 from datetime import datetime
 import random
