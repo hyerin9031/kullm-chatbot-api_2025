@@ -1,13 +1,18 @@
 import requests
 import json
+import gradio as gr
 from typing import List, Dict
 from datetime import datetime
 import random
 import re
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import threading
 from flask import session
 import os
+
+app = Flask(__name__)
+CORS(app)
 
 # KULLM 관련 라이브러리
 try:
@@ -755,15 +760,23 @@ def api_message():
     global global_chatbot
     if global_chatbot is None:
         return jsonify({"error": "Chatbot not initialized"}), 500
+
     data = request.get_json()
     if not data or "message" not in data:
         return jsonify({"error": "Missing 'message' parameter"}), 400
-    user_message = data["message"]
+
+    # 🔹 사용자 입력 전처리
+    user_message = str(data["message"]).strip()
+    if not user_message:
+        return jsonify({"error": "Empty message"}), 400
+
+    # 🔹 기존 chat() 로직 그대로 사용
     try:
         response = global_chatbot.chat(user_message, history=[])
         return jsonify({"response": response, "status": "success"})
     except Exception as e:
         return jsonify({"error": str(e), "status": "error"}), 500
+
 
 # ============================
 # 7. 메인
@@ -780,4 +793,3 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
