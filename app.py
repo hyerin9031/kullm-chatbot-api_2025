@@ -38,9 +38,12 @@ class YouthPolicyAPI:
             if response.status_code == 200:
                 return response.json()
             else:
+                print(f"온통청년 API 상태 코드: {response.status_code}")
                 return None
         except Exception as e:
             print(f"온통청년 API 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def search_policies(self, age: int = None, region: str = None, 
@@ -132,11 +135,33 @@ class BizinfoPolicyAPI:
         try:
             response = requests.get(self.api_url, params=params, timeout=20)
             if response.status_code != 200:
+                print(f"기업마당 API 상태 코드: {response.status_code}")
                 return []
+            
             data = response.json()
-            items = data.get("jsonArray", {}).get("item", [])
+            
+            # jsonArray가 dict인 경우와 list인 경우 모두 처리
+            items = None
+            if "jsonArray" in data:
+                json_array = data["jsonArray"]
+                if isinstance(json_array, dict):
+                    items = json_array.get("item", [])
+                elif isinstance(json_array, list):
+                    items = json_array
+            
+            if not items:
+                print("기업마당 API: 데이터 없음")
+                return []
+            
+            # items가 단일 dict인 경우 리스트로 변환
+            if isinstance(items, dict):
+                items = [items]
+            
             policies = []
             for item in items:
+                if not isinstance(item, dict):
+                    continue
+                    
                 policy = {
                     "title": item.get("pblancNm", "N/A"),
                     "agency": item.get("jrsdInsttNm", "N/A"),
@@ -144,9 +169,14 @@ class BizinfoPolicyAPI:
                     "source": "기업마당"
                 }
                 policies.append(policy)
+            
+            print(f"✅ 기업마당: {len(policies)}개 정책 로드 성공")
             return policies
+            
         except Exception as e:
             print(f"기업마당 API 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def search_policies(self, keyword: str = None, max_results: int = 3) -> List[Dict]:
@@ -185,13 +215,27 @@ class AlioplusPolicyAPI:
         try:
             response = requests.post(self.api_url, data=params, timeout=20)
             if response.status_code != 200:
+                print(f"알리오플러스 API 상태 코드: {response.status_code}")
                 return []
+            
             data = response.json()
-            items = data.get('list', []) if isinstance(data, dict) else []
+            
+            # 다양한 응답 구조 처리
+            items = []
+            if isinstance(data, dict):
+                items = data.get('list', data.get('data', []))
+            elif isinstance(data, list):
+                items = data
+            
+            if not items or not isinstance(items, list):
+                print(f"알리오플러스: 예상치 못한 데이터 형식 - {type(items)}")
+                return []
+            
             policies = []
             for item in items:
                 if not isinstance(item, dict):
                     continue
+                    
                 policy = {
                     "title": item.get("bsnNa", "N/A"),
                     "agency": item.get("apbaNa", "N/A"),
@@ -199,9 +243,14 @@ class AlioplusPolicyAPI:
                     "source": "알리오플러스"
                 }
                 policies.append(policy)
+            
+            print(f"✅ 알리오플러스: {len(policies)}개 정책 로드 성공")
             return policies
+            
         except Exception as e:
             print(f"알리오플러스 API 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def search_policies(self, keyword: str = None, max_results: int = 2) -> List[Dict]:
