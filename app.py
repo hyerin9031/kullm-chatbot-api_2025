@@ -769,11 +769,10 @@ def api_message():
 # 7. 메인
 # ============================
 if __name__ == "__main__":
-    YOUTH_API_KEY = os.environ.get("YOUTH_API_KEY")
-    BIZINFO_API_KEY = os.environ.get("BIZINFO_API_KEY")
-    ALIOPLUS_API_KEY = os.environ.get("ALIOPLUS_API_KEY")
-    use_kullm_env = os.environ.get("USE_KULLM", "True") 
-    USE_KULLM = use_kullm_env.lower() == "true"
+    YOUTH_API_KEY = "fa19e38e-58a0-4847-b18a-a8e272bd8f40"
+    BIZINFO_API_KEY = "gQ0k25"
+    ALIOPLUS_API_KEY = "XUUrvIcCpSVWkp0wLH8gPebTAOIJLfwmTgdWoEcFUSQ="
+    USE_KULLM = True
 
     global_chatbot = UnifiedPolicyChatbot(YOUTH_API_KEY, BIZINFO_API_KEY, ALIOPLUS_API_KEY, use_kullm=USE_KULLM)
     if USE_KULLM:
@@ -781,3 +780,4 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
