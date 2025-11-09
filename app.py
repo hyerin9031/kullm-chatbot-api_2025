@@ -105,21 +105,16 @@ class YouthPolicyAPI:
         return filtered_policies
 
     def format_policy(self, policy: Dict) -> str:
-        if not policy:
-            return ""
-    
-        url = policy.get('refUrlAddr1') or ""
-        link_html = f'<a href="{url}" target="_blank">{url}</a>' if url else "링크 없음"
-
         return f"""
-📌 <b>{policy.get('plcyNm', '정책명 없음')}</b> [온통청년]<br>
-🏢 주관기관: {policy.get('sprvsnInstCdNm', '정보 없음')}<br>
-📅 신청기간: {policy.get('aplyYmd', '상시 신청 가능')}<br>
-👥 나이: {policy.get('sprtTrgtMinAge', '?')}세 ~ {policy.get('sprtTrgtMaxAge', '?')}세<br>
-🔗 상세정보: {link_html}<br>
-<hr>
-"""
+📌 **{policy.get('plcyNm', '정책명 없음')}** [온통청년]
 
+🏢 주관기관: {policy.get('sprvsnInstCdNm', '정보 없음')}
+📅 신청기간: {policy.get('aplyYmd', '상시 신청 가능')}
+👥 나이: {policy.get('sprtTrgtMinAge', '?')}세 ~ {policy.get('sprtTrgtMaxAge', '?')}세
+
+🔗 상세정보: {policy.get('refUrlAddr1', '링크 없음')}
+{'='*80}
+"""
 
 # ============================
 # 2. 기업마당 API 연동
@@ -197,19 +192,14 @@ class BizinfoPolicyAPI:
         return filtered
 
     def format_policy(self, policy: Dict) -> str:
-        if not policy:
-            return ""
-    
-        url = policy.get("url") or ""
-        link_html = f'<a href="{url}" target="_blank">{url}</a>' if url else "링크 없음" 
-
         return f"""
-🏢 <b>{policy.get("title", "N/A")}</b> [기업마당]<br>
-기관: {policy.get("agency", "N/A")}<br>
-🔗 상세 보기: {link_html}<br>
-<hr>
-"""
+🏢 **{policy["title"]}** [기업마당]
 
+기관: {policy["agency"]}
+
+🔗 상세 보기: {policy["url"]}
+{'='*80}
+"""
 
 # ============================
 # 3. 알리오 플러스 API
@@ -218,7 +208,12 @@ class BizinfoPolicyAPI:
 class AlioplusPolicyAPI:
     def __init__(self, api_key: str):
         self.api_url = "http://openapi.alioplus.go.kr/api/business"
-        self.api_key = api_key.replace("+", "%2B")
+        # None이나 빈 문자열 체크 추가
+        if api_key:
+            self.api_key = api_key.replace("+", "%2B")
+        else:
+            self.api_key = ""
+            print("⚠️ 알리오플러스 API 키가 설정되지 않았습니다.")
 
     def get_policies(self, max_count: int = 100) -> List[Dict]:
         params = {"X-API-AUTH-KEY": self.api_key, "pageSize": str(max_count)}
@@ -276,19 +271,14 @@ class AlioplusPolicyAPI:
         return filtered
 
     def format_policy(self, policy: Dict) -> str:
-        if not policy:
-            return ""
-    
-        url = policy.get("url") or ""
-        link_html = f'<a href="{url}" target="_blank">{url}</a>' if url else "정보 없음"
-
         return f"""
-🛍️ <b>{policy.get("title", "N/A")}</b> [알리오플러스]<br>
-기관: {policy.get("agency", "N/A")}<br>
-🔗 상세 보기: {link_html}<br>
-<hr>
-"""
+🛍️ **{policy["title"]}** [알리오플러스]
 
+기관: {policy["agency"]}
+
+🔗 상세 보기: {policy["url"] if policy["url"] else "정보 없음"}
+{'='*80}
+"""
 
 # ============================
 # 4. KULLM 로컬 모델
@@ -589,6 +579,7 @@ def health():
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
+    """✅ 메인 챗봇 API 엔드포인트 (/api/chat 유지)"""
     global global_chatbot
     
     if global_chatbot is None:
@@ -597,6 +588,7 @@ def api_chat():
             "status": "error"
         }), 500
     
+    # JSON 요청 파싱
     data = request.get_json()
     if not data or "message" not in data:
         return jsonify({
@@ -607,13 +599,9 @@ def api_chat():
     user_message = data["message"]
     
     try:
+        # 챗봇 응답 생성
         response = global_chatbot.chat(user_message)
-
-        # 만약 응답에 <a href= 가 포함되어 있다면 HTML로 반환
-        if "<a href=" in response:
-            return response, 200, {"Content-Type": "text/html; charset=utf-8"}
         
-        # 일반 텍스트 응답은 그대로 JSON
         return jsonify({
             "response": response,
             "status": "success"
